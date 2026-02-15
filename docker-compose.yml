@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    image: filehandler-backend
+    container_name: filehandler-backend
+    ports: 
+      - "5000:5000"
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - type: bind
+        source: ./backend/src
+        target: /app/src
+      - type: bind
+        source: ./backend/src/uploads
+        target: /app/src/uploads
+      - /app/node_modules
+    networks:
+      - filehandler-net
+  
+  frontend:
+    build: ./frontend
+    image: filehandler-frontend
+    container_name: filehandler-frontend
+    ports:
+      - "80:80"
+    volumes:
+      - type: bind
+        source: ./frontend
+        target: /app
+    depends_on:
+      - backend
+    networks:
+      - filehandler-net
+
+networks:
+  filehandler-net:
+    driver: bridge
+
+volumes:
+  backend_uploads:
