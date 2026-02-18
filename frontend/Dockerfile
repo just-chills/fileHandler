@@ -4,9 +4,8 @@ WORKDIR /app
 
 RUN npm install -g http-server
 
-COPY index.html ./
-COPY style.css ./
-COPY script.js ./
+COPY src/index.html ./
+COPY src/script.js ./
 
 EXPOSE 80
 

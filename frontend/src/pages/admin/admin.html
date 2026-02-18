@@ -3,10 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScoopDrive</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <title>Document</title>
+    <title>Admin - File Manager</title>
+    <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-    
+    <div class="container">
+        <header class="admin-header">
+            <h1>🔑 Admin Panel - File Manager</h1>
+            <p class="admin-badge">Administrator Access</p>
+        </header>
+
+        <div class="admin-content">
+            <section class="files-section">
+                <h2>📂 All User Files</h2>
+                <div class="file-list-container">
+                    <ul id="fileList" class="file-list">
+                        <li class="loading">Loading files...</li>
+                    </ul>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
 </body>
+
 </html>
