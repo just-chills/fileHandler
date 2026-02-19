@@ -1,12 +1,20 @@
-FROM node:22-slim
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
-RUN npm install -g http-server
+COPY src/ ./
+COPY public/* ./
 
-COPY src/index.html ./
-COPY src/script.js ./
+# Stage 2: Nginx
+FROM nginx:alpine
+
+# ลบ config เดิม
+RUN rm -rf /etc/nginx/conf.d/*
+
+COPY --from=builder /app /usr/share/nginx/html
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
-CMD ["http-server", ".", "-p", "80"]
+CMD ["nginx", "-g", "daemon off;"]

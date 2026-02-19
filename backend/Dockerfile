@@ -9,6 +9,8 @@ COPY package*.json ./
 
 RUN npm install && npm install --save-dev nodemon
 
+COPY .env ./
+
 COPY src/ ./src/
 COPY .env ./
 

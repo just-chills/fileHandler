@@ -1,12 +1,28 @@
-node_modules
-
-# Environment / secrets – NEVER commit real credentials
+# env
 .env
 .env.local
 .env.production
 .env*.local
+backend/.env
 
-# SQLite database files (contains real user data)
+# dependencies
+node_modules/
+backend/node_modules/
+
+# build
+dist/
+build/
+
+# uploads
+backend/src/uploads/
+
+# logs
+*.log
+
+# docker volumes
+**/data/
+
+# database files
 *.db
 *.db-shm
 *.db-wal

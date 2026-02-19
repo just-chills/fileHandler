@@ -1,88 +1,232 @@
+const express = require('express');
+const multer = require('multer');
+const cors = require('cors');
+const path = require('path');
 require('dotenv').config();
-const express      = require('express');
-const cors         = require('cors');
-const path         = require('path');
-const helmet       = require('helmet');
-const rateLimit    = require('express-rate-limit');
-const hpp          = require('hpp');
-const swaggerUi    = require('swagger-ui-express');
-const swaggerSpec  = require('./swagger');
+const { createClient } = require('@supabase/supabase-js');
 
-// ─── Init DB (runs schema creation on startup) ────────────────────────────────
-require('./database/db');
+const app = express();
+const port = 5000;
 
-const authRouter  = require('./routers/authRouter');
-const userRouter  = require('./routers/userRouter');
-const adminRouter = require('./routers/adminRouter');
+// เชื่อม Supabase
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-const app  = express();
-const port = process.env.PORT || 5000;
+// ตั้งค้า multer เก็บไฟล์ในแรม
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
-// ─── Security Headers ─────────────────────────────────────────────────────────
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-}));
+app.use(cors());
+app.use(express.json());
 
-// ─── CORS ─────────────────────────────────────────────────────────────────────
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
-
-// ─── Body Parsers ─────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
-
-// ─── Data Sanitization ────────────────────────────────────────────────────────
-app.use((req, _res, next) => {
-  function sanitize(obj) {
-    if (!obj || typeof obj !== 'object') return;
-    for (const key of Object.keys(obj)) {
-      if (key.startsWith('$') || key.includes('.')) {
-        delete obj[key];
-      } else if (typeof obj[key] === 'object') {
-        sanitize(obj[key]);
-      }
-    }
-  }
-  sanitize(req.body);
-  next();
+app.get('/', (req, res) => {
+ res.send('Backend running smoothly with Supabase');
 });
-app.use(hpp());
 
-// ─── Global Rate Limiter ──────────────────────────────────────────────────────
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 500,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: 'Too many requests, please try again later.' },
-}));
+// ทดสอบ list buckets
+app.get('/test-buckets', async (req, res) => {
+ try {
+  const { data, error } = await supabase.storage.listBuckets();
+  if (error) {
+   return res.status(500).json({ error: error.message });
+  }
+  res.json({ buckets: data });
+ } catch (error) {
+  res.status(500).json({ error: error.message });
+ }
+});
 
-// ─── Swagger UI ───────────────────────────────────────────────────────────────
-app.use(
-  '/api/docs',
-  swaggerUi.serve,
-  swaggerUi.setup(swaggerSpec, {
-    customSiteTitle: 'SCOOPDrive API Docs',
-    swaggerOptions: { persistAuthorization: true },
-  })
-);
-// Raw OpenAPI JSON (useful for code generators)
-app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
+// ทดสอบ manual insert
+app.get('/test-insert', async (req, res) => {
+ try {
+  const { data, error } = await supabase
+   .from('files')
+   .insert([
+    {
+     user_id: null,
+     filename: 'test.txt',
+     file_url: 'https://example.com/test.txt',
+     file_size: 123
+    }
+   ]);
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
-app.get('/', (_req, res) => res.json({ status: 'Backend running' }));
+  if (error) {
+   return res.status(500).json({ error: error.message });
+  }
 
-app.use('/api/auth',  authRouter);
-app.use('/api/user',  userRouter);
-app.use('/api/admin', adminRouter);
+  res.json({ message: 'Insert successful', data });
+ } catch (error) {
+  res.status(500).json({ error: error.message });
+ }
+});
 
-// ─── 404 ──────────────────────────────────────────────────────────────────────
-app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
+// อัปโหลดไฟล์ไป Supabase Storage
+app.post('/upload', upload.single('file'), async (req, res) => {
+ try {
+  console.log('Upload request received:', {
+   hasFile: !!req.file,
+   body: req.body
+  });
 
-// ─── Start ────────────────────────────────────────────────────────────────────
+  if (!req.file) {
+   return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  const userId = req.body.user_id ? parseInt(req.body.user_id) : null;
+  const userIdStr = req.body.user_id || 'anonymous';
+  const filename = `${userIdStr}/${Date.now()}-${req.file.originalname}`;
+  
+  console.log('Processing file upload:', {
+   userId,
+   userIdStr,
+   filename,
+   fileSize: req.file.size
+  });
+  
+  // อัปโหลดไฟล์ไป Supabase Storage
+  const { data, error } = await supabase.storage
+   .from('files')
+   .upload(filename, req.file.buffer, {
+    contentType: req.file.mimetype
+   });
+
+  if (error) {
+   console.error('Supabase storage error:', error);
+   return res.status(500).json({ error: error.message });
+  }
+
+  // บันทึก metadata ลง Database พร้อม status = 'active'
+  const fileUrl = `${supabaseUrl}/storage/v1/object/public/files/${filename}`;
+  const { data: dbData, error: dbError } = await supabase
+   .from('files')
+   .insert([
+    {
+     user_id: userId, // ใช้ userId ที่เป็น integer หรือ null
+     filename: req.file.originalname,
+     file_url: fileUrl,
+     file_size: req.file.size,
+     status: 'active' // เพิ่ม default status
+    }
+   ]);
+
+  if (dbError) {
+   console.error('Supabase database error:', dbError);
+   return res.status(500).json({ error: dbError.message });
+  }
+
+  console.log('File uploaded successfully:', filename);
+  res.json({ 
+   message: 'File uploaded successfully', 
+   filename: req.file.originalname,
+   file_url: fileUrl
+  });
+ } catch (error) {
+  console.error('Upload error:', error);
+  res.status(500).json({ error: error.message });
+ }
+});
+
+// แสดงรายการไฟล์จากฐานข้อมูล (เฉพาะ active files)
+app.get('/files', async (req, res) => {
+ try {
+  const userIdParam = req.query.user_id;
+  let userId = null;
+  
+  // ตรวจสอบและแปลง user_id
+  if (userIdParam && userIdParam !== 'anonymous' && userIdParam !== '') {
+   const parsedId = parseInt(userIdParam);
+   if (isNaN(parsedId)) {
+    return res.status(400).json({ error: 'Invalid user_id format. Must be a number.' });
+   }
+   userId = parsedId;
+  }
+
+  // Query ไฟล์จาก Supabase - เฉพาะ active files (ซ่อนไฟล์ที่ลบ)
+  let query = supabase.from('files').select('*').eq('status', 'active');
+  
+  if (userId !== null) {
+   query = query.eq('user_id', userId);
+  } else {
+   query = query.is('user_id', null);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+   console.error('Supabase error:', error);
+   return res.status(500).json({ error: error.message });
+  }
+
+  res.json(data || []);
+ } catch (error) {
+  console.error('Server error:', error);
+  res.status(500).json({ error: error.message });
+ }
+});
+
+// ดาวน์โหลดไฟล์จาก Supabase Storage
+app.get('/download/:fileId', async (req, res) => {
+ try {
+  const { data, error } = await supabase
+   .from('files')
+   .select('file_url')
+   .eq('id', req.params.fileId)
+   .single();
+
+  if (error || !data) {
+   return res.status(404).json({ error: 'File not found' });
+  }
+
+  res.json({ download_url: data.file_url });
+ } catch (error) {
+  res.status(500).json({ error: error.message });
+ }
+});
+
+// ลบไฟล์ (Soft Delete - แค่เปลี่ยน status เป็น deleted ใน Supabase แต่ไม่ลบจริง)
+app.delete('/delete/:fileId', async (req, res) => {
+ try {
+  const { data, error } = await supabase
+   .from('files')
+   .update({ status: 'deleted' })
+   .eq('id', req.params.fileId)
+   .select('id')
+   .single();
+
+  if (error || !data) {
+   return res.status(404).json({ error: 'File not found' });
+  }
+
+  res.json({ message: 'File deleted successfully' });
+ } catch (error) {
+  res.status(500).json({ error: error.message });
+ }
+});
+
+
+
+// เพิ่ม endpoint สำหรับดูไฟล์โดยตรงผ่าน URL
+app.get('/view/:fileId', async (req, res) => {
+ try {
+  const { data, error } = await supabase
+   .from('files')
+   .select('file_url, filename')
+   .eq('id', req.params.fileId)
+   .single();
+
+  if (error || !data) {
+   return res.status(404).json({ error: 'File not found' });
+  }
+
+  // Redirect ไปยัง actual file URL ใน Supabase Storage
+  res.redirect(data.file_url);
+ } catch (error) {
+  res.status(500).json({ error: error.message });
+ }
+});
+
+// เริ่มเซิร์ฟเวอร์
 app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+ console.log(`Server running at http://localhost:${port}`);
 });
