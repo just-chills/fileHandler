@@ -12,7 +12,9 @@ const port = process.env.PORT || 5000;
 // ─── Supabase ─────────────────────────────────────────────────────────────────
 // Strip trailing slash from URL to avoid double-slashes in storage URLs
 const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-const supabaseKey = process.env.SUPABASE_KEY;
+// Use service_role key if available (bypasses RLS - required for backend operations)
+// Fallback to anon key if service key not configured
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY;
 const supabase    = createClient(supabaseUrl, supabaseKey);
 
 // ─── JWT config ───────────────────────────────────────────────────────────────
@@ -32,6 +34,10 @@ app.use(express.json());
 function signAccess(payload)  { return jwt.sign(payload, JWT_SECRET,         { expiresIn: JWT_EXPIRES }); }
 function signRefresh(payload) { return jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: JWT_REFRESH_EXPIRES }); }
 
+// ─── In-memory token/OTP stores (stateless fallback - resets on restart) ─────
+const activeRefreshTokens = new Map(); // token → { userId, expires }
+const activeOtps          = new Map(); // email → { code, expires }
+
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -42,11 +48,11 @@ async function requireAuth(req, res, next) {
     const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET);
     const { data: user, error } = await supabase
       .from('users')
-      .select('id, username, full_name, email, role, is_active')
+      .select('id, username, email, role, status')
       .eq('id', decoded.id)
       .single();
 
-    if (error || !user || !user.is_active)
+    if (error || !user || user.status === 'disabled')
       return res.status(401).json({ message: 'Invalid or expired token' });
 
     req.user = user;
@@ -73,28 +79,25 @@ app.get('/', (req, res) => res.send('Backend running smoothly with Supabase'));
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, password, full_name, email } = req.body;
-    if (!username || !password || !full_name || !email)
+    if (!username || !password || !email)
       return res.status(400).json({ message: 'All fields are required' });
 
     // Validate email format
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
       return res.status(400).json({ message: 'Invalid email format' });
 
-    // Check existing
-    const { data: existing } = await supabase
-      .from('users')
-      .select('id')
-      .or(`username.eq.${username},email.eq.${email}`)
-      .maybeSingle();
+    // Check existing username
+    const { data: byUser } = await supabase.from('users').select('id').eq('username', username).maybeSingle();
+    if (byUser) return res.status(409).json({ message: 'Username already taken' });
+    // Check existing email
+    const { data: byEmail } = await supabase.from('users').select('id').eq('email', email).maybeSingle();
+    if (byEmail) return res.status(409).json({ message: 'Email already registered' });
 
-    if (existing)
-      return res.status(409).json({ message: 'Username or email already taken' });
-
-    const password_hash = await bcrypt.hash(password, 12);
+    const hashedPassword = await bcrypt.hash(password, 12);
 
     const { error } = await supabase
       .from('users')
-      .insert([{ username, full_name, email, password_hash, role: 'user', is_active: true }]);
+      .insert([{ username, email, password: hashedPassword, role: 'user', status: 'active' }]);
 
     if (error) return res.status(500).json({ message: error.message });
 
@@ -120,39 +123,19 @@ app.post('/api/auth/login', async (req, res) => {
     if (error || !user)
       return res.status(401).json({ message: 'Invalid username or password' });
 
-    if (!user.is_active)
+    if (user.status === 'disabled')
       return res.status(403).json({ message: 'Account is disabled. Contact an admin.' });
 
-    if (user.locked_until && new Date(user.locked_until) > new Date())
-      return res.status(403).json({ message: `Account locked until ${new Date(user.locked_until).toLocaleString()}` });
-
-    const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) {
-      // Increment failed attempts
-      const attempts = (user.failed_login_attempts || 0) + 1;
-      const lockUntil = attempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
-      await supabase.from('users').update({
-        failed_login_attempts: attempts,
-        locked_until: lockUntil
-      }).eq('id', user.id);
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid)
       return res.status(401).json({ message: 'Invalid username or password' });
-    }
-
-    // Reset failed attempts on success
-    await supabase.from('users')
-      .update({ failed_login_attempts: 0, locked_until: null })
-      .eq('id', user.id);
 
     const payload = { id: user.id, username: user.username, role: user.role };
     const accessToken  = signAccess(payload);
     const refreshToken = signRefresh(payload);
 
-    // Store refresh token
-    await supabase.from('refresh_tokens').insert([{
-      user_id: user.id,
-      token: refreshToken,
-      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-    }]);
+    // Store refresh token in memory (no refresh_tokens table in DB)
+    activeRefreshTokens.set(refreshToken, { userId: user.id, expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
 
     res.json({
       accessToken,
@@ -160,7 +143,7 @@ app.post('/api/auth/login', async (req, res) => {
       user: {
         id:        user.id,
         username:  user.username,
-        full_name: user.full_name,
+        full_name: user.username, // use username as display name (no full_name column)
         email:     user.email,
         role:      user.role
       }
@@ -184,41 +167,30 @@ app.post('/api/auth/refresh', async (req, res) => {
       return res.status(401).json({ message: 'Invalid refresh token' });
     }
 
-    // Check token exists in DB
-    const { data: stored } = await supabase
-      .from('refresh_tokens')
-      .select('id')
-      .eq('token', refreshToken)
-      .eq('user_id', decoded.id)
-      .maybeSingle();
-
-    if (!stored)
-      return res.status(401).json({ message: 'Refresh token revoked' });
+    const stored = activeRefreshTokens.get(refreshToken);
+    if (!stored || stored.expires < Date.now())
+      return res.status(401).json({ message: 'Refresh token revoked or expired' });
 
     const { data: user } = await supabase
       .from('users')
-      .select('id, username, full_name, email, role, is_active')
+      .select('id, username, email, role, status')
       .eq('id', decoded.id)
       .single();
 
-    if (!user || !user.is_active)
+    if (!user || user.status === 'disabled')
       return res.status(401).json({ message: 'User not found or disabled' });
 
     // Rotate tokens
-    await supabase.from('refresh_tokens').delete().eq('token', refreshToken);
-    const payload       = { id: user.id, username: user.username, role: user.role };
-    const newAccess     = signAccess(payload);
-    const newRefresh    = signRefresh(payload);
-    await supabase.from('refresh_tokens').insert([{
-      user_id: user.id,
-      token: newRefresh,
-      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-    }]);
+    activeRefreshTokens.delete(refreshToken);
+    const payload    = { id: user.id, username: user.username, role: user.role };
+    const newAccess  = signAccess(payload);
+    const newRefresh = signRefresh(payload);
+    activeRefreshTokens.set(newRefresh, { userId: user.id, expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
 
     res.json({
       accessToken:  newAccess,
       refreshToken: newRefresh,
-      user: { id: user.id, username: user.username, full_name: user.full_name, email: user.email, role: user.role }
+      user: { id: user.id, username: user.username, full_name: user.username, email: user.email, role: user.role }
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -229,29 +201,22 @@ app.post('/api/auth/refresh', async (req, res) => {
 app.post('/api/auth/logout', async (req, res) => {
   try {
     const { refreshToken } = req.body;
-    if (refreshToken)
-      await supabase.from('refresh_tokens').delete().eq('token', refreshToken);
+    if (refreshToken) activeRefreshTokens.delete(refreshToken);
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// POST /api/auth/check-username  (forgot password step 1 – stub, returns success)
+// POST /api/auth/check-username  (forgot password – store OTP in memory)
 app.post('/api/auth/check-username', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ message: 'Email required' });
   const { data: user } = await supabase.from('users').select('email').eq('email', email).maybeSingle();
   if (!user) return res.status(404).json({ message: 'No account found with that email' });
-  // TODO: send real OTP email. For now return a static code stored in DB.
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  await supabase.from('otp_codes').upsert([{
-    email,
-    code: await bcrypt.hash(otp, 8),
-    expires_at: new Date(Date.now() + 10 * 60 * 1000),
-    used: false
-  }], { onConflict: 'email' });
-  console.log(`[DEV] OTP for ${email}: ${otp}`); // remove in production
+  activeOtps.set(email, { code: otp, expires: Date.now() + 10 * 60 * 1000 });
+  console.log(`[DEV] OTP for ${email}: ${otp}`);
   res.json({ message: `OTP sent to ${email.replace(/(.{2}).+(@.+)/, '$1***$2')}` });
 });
 
@@ -259,12 +224,12 @@ app.post('/api/auth/check-username', async (req, res) => {
 app.post('/api/auth/verify-otp', async (req, res) => {
   const { email, otp } = req.body;
   if (!email || !otp) return res.status(400).json({ message: 'Email and OTP required' });
-  const { data: row } = await supabase.from('otp_codes').select('*').eq('email', email).maybeSingle();
-  if (!row || row.used || new Date(row.expires_at) < new Date())
+  const stored = activeOtps.get(email);
+  if (!stored || stored.expires < Date.now())
     return res.status(400).json({ message: 'OTP is invalid or expired' });
-  const match = await bcrypt.compare(otp, row.code);
-  if (!match) return res.status(400).json({ message: 'Incorrect OTP' });
-  await supabase.from('otp_codes').update({ used: true }).eq('email', email);
+  if (stored.code !== otp)
+    return res.status(400).json({ message: 'Incorrect OTP' });
+  activeOtps.delete(email);
   const resetToken = jwt.sign({ email }, JWT_SECRET, { expiresIn: '10m' });
   res.json({ resetToken });
 });
@@ -275,8 +240,8 @@ app.post('/api/auth/reset-password', async (req, res) => {
   if (!resetToken || !newPassword) return res.status(400).json({ message: 'All fields required' });
   let decoded;
   try { decoded = jwt.verify(resetToken, JWT_SECRET); } catch { return res.status(401).json({ message: 'Reset token expired or invalid' }); }
-  const password_hash = await bcrypt.hash(newPassword, 12);
-  const { error } = await supabase.from('users').update({ password_hash, failed_login_attempts: 0, locked_until: null }).eq('email', decoded.email);
+  const hashedPassword = await bcrypt.hash(newPassword, 12);
+  const { error } = await supabase.from('users').update({ password: hashedPassword }).eq('email', decoded.email);
   if (error) return res.status(500).json({ message: error.message });
   res.json({ message: 'Password reset successfully' });
 });
@@ -300,7 +265,7 @@ app.get('/api/user/files', requireAuth, async (req, res) => {
     const files = (data || []).map(f => ({
       id:            f.id,
       original_name: f.filename,
-      mimetype:      f.mimetype || '',
+      mimetype:      '',
       size:          f.file_size,
       created_at:    f.created_at,
       file_url:      f.file_url,
@@ -335,7 +300,6 @@ app.post('/api/user/files/upload', requireAuth, upload.single('file'), async (re
       filename:  req.file.originalname,
       file_url:  fileUrl,
       file_size: req.file.size,
-      mimetype:  req.file.mimetype,
       status:    'active'
     }]);
 
@@ -378,7 +342,7 @@ app.get('/api/user/files/:id/preview', requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('files')
-      .select('file_url, filename, user_id, mimetype')
+      .select('file_url, filename, user_id')
       .eq('id', req.params.id)
       .eq('status', 'active')
       .single();
@@ -390,7 +354,7 @@ app.get('/api/user/files/:id/preview', requireAuth, async (req, res) => {
     const fileResp = await fetch(data.file_url);
     if (!fileResp.ok) return res.status(500).json({ message: 'Could not fetch file from storage' });
 
-    res.setHeader('Content-Type', data.mimetype || fileResp.headers.get('content-type') || 'application/octet-stream');
+    res.setHeader('Content-Type', fileResp.headers.get('content-type') || 'application/octet-stream');
     fileResp.body.pipe(res);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -438,7 +402,7 @@ app.get('/api/user/users', requireAuth, async (req, res) => {
 
     const { data } = await supabase
       .from('users')
-      .select('id, username, full_name')
+      .select('id, username')
       .ilike('username', `%${q}%`)
       .neq('id', req.user.id)
       .limit(10);
@@ -467,7 +431,7 @@ app.get('/api/admin/files', requireAuth, requireAdmin, async (req, res) => {
     const files = (data || []).map(f => ({
       id:            f.id,
       original_name: f.filename,
-      mimetype:      f.mimetype || '',
+      mimetype:      '',
       size:          f.file_size,
       created_at:    f.created_at,
       file_url:      f.file_url,
@@ -507,7 +471,7 @@ app.get('/api/admin/files/:id/preview', requireAuth, requireAdmin, async (req, r
   try {
     const { data, error } = await supabase
       .from('files')
-      .select('file_url, filename, mimetype')
+      .select('file_url, filename')
       .eq('id', req.params.id)
       .single();
 
@@ -516,7 +480,7 @@ app.get('/api/admin/files/:id/preview', requireAuth, requireAdmin, async (req, r
     const fileResp = await fetch(data.file_url);
     if (!fileResp.ok) return res.status(500).json({ message: 'Could not fetch file' });
 
-    res.setHeader('Content-Type', data.mimetype || fileResp.headers.get('content-type') || 'application/octet-stream');
+    res.setHeader('Content-Type', fileResp.headers.get('content-type') || 'application/octet-stream');
     fileResp.body.pipe(res);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -545,11 +509,18 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('users')
-      .select('id, username, full_name, email, role, is_active, locked_until, created_at')
+      .select('id, username, email, role, status, created_at')
       .order('created_at', { ascending: false });
 
     if (error) return res.status(500).json({ message: error.message });
-    res.json({ users: data || [] });
+    // Normalize: map status to is_active for frontend compatibility
+    const users = (data || []).map(u => ({
+      ...u,
+      full_name:  u.username,
+      is_active:  u.status !== 'disabled',
+      locked_until: null
+    }));
+    res.json({ users });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -558,24 +529,22 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
 // PATCH /api/admin/users/:id/toggle  – enable / disable account
 app.patch('/api/admin/users/:id/toggle', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { data: user } = await supabase.from('users').select('is_active').eq('id', req.params.id).single();
+    const { data: user } = await supabase.from('users').select('status').eq('id', req.params.id).single();
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const { error } = await supabase.from('users').update({ is_active: !user.is_active }).eq('id', req.params.id);
+    const newStatus = user.status === 'disabled' ? 'active' : 'disabled';
+    const { error } = await supabase.from('users').update({ status: newStatus }).eq('id', req.params.id);
     if (error) return res.status(500).json({ message: error.message });
-    res.json({ message: `User ${!user.is_active ? 'enabled' : 'disabled'}` });
+    res.json({ message: `User ${newStatus === 'active' ? 'enabled' : 'disabled'}` });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// PATCH /api/admin/users/:id/unlock  – clear account lock
+// PATCH /api/admin/users/:id/unlock  – no lock column, just re-enable
 app.patch('/api/admin/users/:id/unlock', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { error } = await supabase.from('users')
-      .update({ locked_until: null, failed_login_attempts: 0 })
-      .eq('id', req.params.id);
-
+    const { error } = await supabase.from('users').update({ status: 'active' }).eq('id', req.params.id);
     if (error) return res.status(500).json({ message: error.message });
     res.json({ message: 'User unlocked' });
   } catch (err) {

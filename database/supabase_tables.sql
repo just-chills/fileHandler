@@ -1,52 +1,59 @@
 -- ============================================================
--- Supabase Tables for FileHandler (SCOOPDrive)
--- Run this in the Supabase SQL Editor
+-- Actual Supabase Schema for FileHandler (SCOOPDrive)
+-- This reflects the ACTUAL tables created by the DB admin
 -- ============================================================
 
 -- ─── Users ───────────────────────────────────────────────────
+-- Actual columns (as probed from live DB):
+--   id, username, email, password, status, role, created_at
+--
+-- NOTE: No full_name, no password_hash, no is_active,
+--       no locked_until, no failed_login_attempts
+
 CREATE TABLE IF NOT EXISTS users (
-  id                    SERIAL PRIMARY KEY,
-  username              TEXT    UNIQUE NOT NULL,
-  full_name             TEXT    NOT NULL,
-  email                 TEXT    UNIQUE NOT NULL,
-  password_hash         TEXT    NOT NULL,
-  role                  TEXT    NOT NULL DEFAULT 'user',   -- 'user' | 'admin'
-  is_active             BOOLEAN NOT NULL DEFAULT TRUE,
-  locked_until          TIMESTAMPTZ,
-  failed_login_attempts INTEGER NOT NULL DEFAULT 0,
-  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- ─── Refresh Tokens ──────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS refresh_tokens (
-  id          SERIAL PRIMARY KEY,
-  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token       TEXT    NOT NULL,
-  expires_at  TIMESTAMPTZ NOT NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- ─── OTP Codes (Forgot Password) ─────────────────────────────
-CREATE TABLE IF NOT EXISTS otp_codes (
-  id         SERIAL PRIMARY KEY,
-  email      TEXT    UNIQUE NOT NULL,
-  code       TEXT    NOT NULL,
-  expires_at TIMESTAMPTZ NOT NULL,
-  used       BOOLEAN NOT NULL DEFAULT FALSE,
+  id         BIGSERIAL   PRIMARY KEY,
+  username   TEXT        UNIQUE NOT NULL,
+  email      TEXT        UNIQUE NOT NULL,
+  password   TEXT        NOT NULL,           -- bcrypt hash
+  role       TEXT        NOT NULL DEFAULT 'user',    -- 'user' | 'admin'
+  status     TEXT        NOT NULL DEFAULT 'active',  -- 'active' | 'disabled'
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ─── Files ───────────────────────────────────────────────────
+-- Actual columns (as probed from live DB):
+--   id, user_id, filename, file_url, file_size, status, created_at
+--
+-- NOTE: No mimetype column
+
 CREATE TABLE IF NOT EXISTS files (
-  id         SERIAL PRIMARY KEY,
-  user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  filename   TEXT    NOT NULL,
-  file_url   TEXT    NOT NULL,
+  id         BIGSERIAL   PRIMARY KEY,
+  user_id    BIGINT      REFERENCES users(id) ON DELETE SET NULL,
+  filename   TEXT        NOT NULL,
+  file_url   TEXT        NOT NULL,
   file_size  BIGINT,
-  mimetype   TEXT,
-  status     TEXT    NOT NULL DEFAULT 'active',  -- 'active' | 'deleted'
+  status     TEXT        NOT NULL DEFAULT 'active',  -- 'active' | 'deleted'
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ─── RLS Policies ─────────────────────────────────────────────
+-- OPTION A: Use service_role key in backend (recommended)
+--   Set SUPABASE_SERVICE_KEY in backend/.env
+--   Get from: Supabase Dashboard > Settings > API > service_role
+--
+-- OPTION B: Add permissive policies if using anon key
+--   Run the SQL below in Supabase SQL Editor
+
+-- Enable RLS
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE files ENABLE ROW LEVEL SECURITY;
+
+-- Permissive policies for backend anon key access (OPTION B)
+CREATE POLICY "backend_users_insert" ON users FOR INSERT WITH CHECK (true);
+CREATE POLICY "backend_users_select" ON users FOR SELECT USING (true);
+CREATE POLICY "backend_users_update" ON users FOR UPDATE USING (true);
+
+CREATE POLICY "backend_files_all"    ON files FOR ALL USING (true) WITH CHECK (true);
 
 -- ─── Indexes ─────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_files_user_id ON files(user_id);
