@@ -96,7 +96,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
    return res.status(500).json({ error: error.message });
   }
 
-  // บันทึก metadata ลง Database
+  // บันทึก metadata ลง Database พร้อม status = 'active'
   const fileUrl = `${supabaseUrl}/storage/v1/object/public/files/${filename}`;
   const { data: dbData, error: dbError } = await supabase
    .from('files')
@@ -105,7 +105,8 @@ app.post('/upload', upload.single('file'), async (req, res) => {
      user_id: userId, // ใช้ userId ที่เป็น integer หรือ null
      filename: req.file.originalname,
      file_url: fileUrl,
-     file_size: req.file.size
+     file_size: req.file.size,
+     status: 'active' // เพิ่ม default status
     }
    ]);
 
@@ -126,7 +127,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
  }
 });
 
-// แสดงรายการไฟล์จากฐานข้อมูล
+// แสดงรายการไฟล์จากฐานข้อมูล (เฉพาะ active files)
 app.get('/files', async (req, res) => {
  try {
   const userIdParam = req.query.user_id;
@@ -141,8 +142,8 @@ app.get('/files', async (req, res) => {
    userId = parsedId;
   }
 
-  // Query ไฟล์จาก Supabase
-  let query = supabase.from('files').select('*');
+  // Query ไฟล์จาก Supabase - เฉพาะ active files (ซ่อนไฟล์ที่ลบ)
+  let query = supabase.from('files').select('*').eq('status', 'active');
   
   if (userId !== null) {
    query = query.eq('user_id', userId);
@@ -183,38 +184,18 @@ app.get('/download/:fileId', async (req, res) => {
  }
 });
 
-// ลบไฟล์จาก Supabase Storage และ Database
+// ลบไฟล์ (Soft Delete - แค่เปลี่ยน status เป็น deleted ใน Supabase แต่ไม่ลบจริง)
 app.delete('/delete/:fileId', async (req, res) => {
  try {
-  // ดึง file path ก่อน
-  const { data: fileData, error: fetchError } = await supabase
+  const { data, error } = await supabase
    .from('files')
-   .select('file_url, filename')
+   .update({ status: 'deleted' })
    .eq('id', req.params.fileId)
+   .select('id')
    .single();
 
-  if (fetchError || !fileData) {
+  if (error || !data) {
    return res.status(404).json({ error: 'File not found' });
-  }
-
-  // ลบจาก Storage
-  const filePath = fileData.file_url.split('/public/')[1];
-  const { error: deleteStorageError } = await supabase.storage
-   .from('files')
-   .remove([filePath]);
-
-  if (deleteStorageError) {
-   return res.status(500).json({ error: deleteStorageError.message });
-  }
-
-  // ลบจาก Database
-  const { error: deleteDbError } = await supabase
-   .from('files')
-   .delete()
-   .eq('id', req.params.fileId);
-
-  if (deleteDbError) {
-   return res.status(500).json({ error: deleteDbError.message });
   }
 
   res.json({ message: 'File deleted successfully' });
@@ -223,10 +204,7 @@ app.delete('/delete/:fileId', async (req, res) => {
  }
 });
 
-// เริ่มเซิร์ฟเวอร์
-app.listen(port, () => {
- console.log(`Server running at http://localhost:${port}`);
-});
+
 
 // เพิ่ม endpoint สำหรับดูไฟล์โดยตรงผ่าน URL
 app.get('/view/:fileId', async (req, res) => {
@@ -246,4 +224,9 @@ app.get('/view/:fileId', async (req, res) => {
  } catch (error) {
   res.status(500).json({ error: error.message });
  }
+});
+
+// เริ่มเซิร์ฟเวอร์
+app.listen(port, () => {
+ console.log(`Server running at http://localhost:${port}`);
 });
