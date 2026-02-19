@@ -1,1 +1,16 @@
 node_modules
+
+# Environment / secrets – NEVER commit real credentials
+.env
+.env.local
+.env.production
+.env*.local
+
+# SQLite database files (contains real user data)
+*.db
+*.db-shm
+*.db-wal
+
+# OS junk
+.DS_Store
+Thumbs.db

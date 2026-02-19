@@ -1,34 +1,98 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="th">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ScoopDrive</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <title>Admin - File Manager</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScoopDrive – Admin</title>
+  <!-- ── Protected Route Guard (runs before body renders) ── -->
+  <script>
+    (function () {
+      try {
+        var u = JSON.parse(localStorage.getItem('user'));
+        var t = localStorage.getItem('accessToken');
+        if (!u || !t || u.role !== 'admin') {
+          localStorage.clear();
+          window.location.replace('../../index.html');
+        }
+      } catch (e) {
+        localStorage.clear();
+        window.location.replace('../../index.html');
+      }
+    })();
+  </script>
+  <style>body { display: none; }</style>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
+<body class="bg-slate-100 min-h-screen" onload="document.body.style.display='block'">
 
-<body>
-    <div class="container">
-        <header class="admin-header">
-            <h1>🔑 Admin Panel - File Manager</h1>
-            <p class="admin-badge">Administrator Access</p>
-        </header>
+  <!-- ── Navbar ── -->
+  <nav class="bg-white shadow-sm px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+    <span class="text-blue-600 font-bold text-xl">SCOOPDrive <span class="text-xs bg-red-100 text-red-600 font-semibold px-2 py-0.5 rounded-full ml-1">Admin</span></span>
+    <div class="flex items-center gap-4">
+      <span id="navUsername" class="text-slate-600 text-sm font-medium"></span>
+      <!-- Language Toggle -->
+      <button id="langToggleBtn" onclick="toggleLang()" title="Switch to English"
+        class="bg-slate-100 border border-slate-200 rounded-full px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 transition flex items-center gap-1 select-none">
+        🌐 <span id="langLabel">EN</span>
+      </button>
+      <button id="logoutBtn" class="text-sm text-red-500 hover:text-red-700 font-semibold transition" data-i18n="nav.logout">ออกจากระบบ</button>
+    </div>
+  </nav>
 
-        <div class="admin-content">
-            <section class="files-section">
-                <h2>📂 All User Files</h2>
-                <div class="file-list-container">
-                    <ul id="fileList" class="file-list">
-                        <li class="loading">Loading files...</li>
-                    </ul>
-                </div>
-            </section>
-        </div>
+  <!-- ── Tabs ── -->
+  <div class="max-w-6xl mx-auto px-4 pt-6">
+    <div class="flex gap-2 mb-6">
+      <button id="tabFiles" data-tab="files"
+        class="tab-btn px-5 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white transition"
+        data-i18n="admin.tab_files">
+        📂 ไฟล์ทั้งหมด
+      </button>
+      <button id="tabUsers" data-tab="users"
+        class="tab-btn px-5 py-2 rounded-xl text-sm font-semibold bg-white text-slate-500 hover:bg-slate-200 transition"
+        data-i18n="admin.tab_users">
+        👥 ผู้ใช้
+      </button>
     </div>
 
-    <script src="script.js"></script>
-</body>
+    <!-- ── Files Tab ── -->
+    <div id="panelFiles" class="bg-white rounded-2xl shadow p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold text-slate-800" data-i18n="admin.files_title">ไฟล์ทั้งหมดในระบบ</h2>
+        <button id="refreshFilesBtn" class="text-xs text-slate-400 hover:text-slate-600 transition" data-i18n="admin.refresh">↻ รีเฟรช</button>
+      </div>
+      <div id="adminFileList" class="space-y-2">
+        <p class="text-slate-400 text-sm text-center py-6" data-i18n="admin.loading">กำลังโหลด…</p>
+      </div>
+    </div>
 
+    <!-- ── Users Tab ── -->
+    <div id="panelUsers" class="hidden bg-white rounded-2xl shadow p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold text-slate-800" data-i18n="admin.users_title">จัดการผู้ใช้</h2>
+        <button id="refreshUsersBtn" class="text-xs text-slate-400 hover:text-slate-600 transition" data-i18n="admin.refresh_users">↻ รีเฟรช</button>
+      </div>
+      <div id="adminUserList" class="space-y-3">
+        <p class="text-slate-400 text-sm text-center py-6" data-i18n="admin.loading">กำลังโหลด…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Preview Modal ── -->
+  <div id="previewModal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden relative">
+      <div class="flex items-center justify-between px-5 py-3 border-b">
+        <p id="previewFilename" class="font-semibold text-slate-700 truncate max-w-xs"></p>
+        <button id="previewCloseBtn" class="text-slate-400 hover:text-slate-600">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div id="previewContent" class="flex-1 overflow-auto p-4 flex items-center justify-center bg-slate-50"></div>
+    </div>
+  </div>
+
+  <script src="../../i18n.js"></script>
+  <script src="script.js"></script>
+</body>
 </html>

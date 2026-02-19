@@ -1,65 +1,88 @@
-const express = require('express');
-const multer = require('multer');
-const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
-const app = express();
-const port = 5000;
+require('dotenv').config();
+const express      = require('express');
+const cors         = require('cors');
+const path         = require('path');
+const helmet       = require('helmet');
+const rateLimit    = require('express-rate-limit');
+const hpp          = require('hpp');
+const swaggerUi    = require('swagger-ui-express');
+const swaggerSpec  = require('./swagger');
 
-const uploadsDir = path.join(__dirname, 'uploads');
+// ─── Init DB (runs schema creation on startup) ────────────────────────────────
+require('./database/db');
 
-app.use(cors()); // อนุญาตให้ Frontend เรียกใช้งาน
-app.use(express.static(uploadsDir)); // ให้เข้าถึงไฟล์ที่อัปโหลด
+const authRouter  = require('./routers/authRouter');
+const userRouter  = require('./routers/userRouter');
+const adminRouter = require('./routers/adminRouter');
 
-// ตั้งค้าที่เก็บไฟล์ที่อัปโหลด
-const storage = multer.diskStorage({
- destination: uploadsDir,
- filename: (req, file, cb) => {
- cb(null, file.originalname);
- }
+const app  = express();
+const port = process.env.PORT || 5000;
+
+// ─── Security Headers ─────────────────────────────────────────────────────────
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+// ─── Body Parsers ─────────────────────────────────────────────────────────────
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// ─── Data Sanitization ────────────────────────────────────────────────────────
+app.use((req, _res, next) => {
+  function sanitize(obj) {
+    if (!obj || typeof obj !== 'object') return;
+    for (const key of Object.keys(obj)) {
+      if (key.startsWith('$') || key.includes('.')) {
+        delete obj[key];
+      } else if (typeof obj[key] === 'object') {
+        sanitize(obj[key]);
+      }
+    }
+  }
+  sanitize(req.body);
+  next();
 });
+app.use(hpp());
 
-app.get('/', (req, res) => {
- res.send('Backend eun smoothly');
-});
+// ─── Global Rate Limiter ──────────────────────────────────────────────────────
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many requests, please try again later.' },
+}));
 
-const upload = multer({ storage });
+// ─── Swagger UI ───────────────────────────────────────────────────────────────
+app.use(
+  '/api/docs',
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec, {
+    customSiteTitle: 'SCOOPDrive API Docs',
+    swaggerOptions: { persistAuthorization: true },
+  })
+);
+// Raw OpenAPI JSON (useful for code generators)
+app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
 
-// อัปโหลดไฟล์จาก Client -> Server
-app.post('/upload', upload.single('file'), (req, res) => {
- res.json({ message: 'File uploaded successfully', filename: req.file.filename });
-});
+// ─── Routes ───────────────────────────────────────────────────────────────────
+app.get('/', (_req, res) => res.json({ status: 'Backend running' }));
 
-// แสดงรตัวอย่างไฟล์ที่อัปโหลด
-app.get('/file/:filename', (req, res) => {
-  const filePath = path.join(uploadsDir, req.params.filename);
-  res.sendFile(filePath);
-});
+app.use('/api/auth',  authRouter);
+app.use('/api/user',  userRouter);
+app.use('/api/admin', adminRouter);
 
-// แสดงรายการไฟล์ที่มีในเซิร์ฟเวอร์
-app.get('/files', (req, res) => {
- fs.readdir(uploadsDir, (err, files) => {
- if (err) return res.status(500).json({ error: 'Unable to list files' });
- res.json(files);
- });
-});
+// ─── 404 ──────────────────────────────────────────────────────────────────────
+app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
 
-// ให้ Client ดาวน์โหลดไฟล์จาก Server
-app.get('/download/:filename', (req, res) => {
- const filePath = path.join(uploadsDir, req.params.filename);
- res.download(filePath);
-});
-
-// ลบไฟล์จาก Server
-app.delete('/delete/:filename', (req, res) => {
-    const filePath = path.join(uploadsDir, req.params.filename);
-    fs.unlink(filePath, (err) => {
-        if (err) return res.status(500).json({ error: 'Unable to delete file' });
-        res.json({ message: 'File deleted successfully' });
-    });
-})
-
-// เริ่มเซิร์ฟเวอร์
+// ─── Start ────────────────────────────────────────────────────────────────────
 app.listen(port, () => {
- console.log(`Server running at http://localhost:${port}`);
+  console.log(`Server running at http://localhost:${port}`);
 });
