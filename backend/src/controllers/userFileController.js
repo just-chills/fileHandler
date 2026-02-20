@@ -70,7 +70,7 @@ async function getFiles(req, res) {
           original_name: f.filename,
           mimetype:      getMimeFromFilename(f.filename),
           size:          f.file_size,
-          created_at:    null,
+          created_at:    f.uploaded_at || null,
           file_url:      f.file_url,
           is_mine:       false,
           owner:         ownerMap[f.id] || '?'
@@ -84,7 +84,7 @@ async function getFiles(req, res) {
         original_name: f.filename,
         mimetype:      getMimeFromFilename(f.filename),
         size:          f.file_size,
-        created_at:    null,
+        created_at:    f.uploaded_at || null,
         file_url:      f.file_url,
         is_mine:       true,
         owner:         req.user.username
