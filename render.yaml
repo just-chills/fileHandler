@@ -2,6 +2,7 @@ services:
   - type: web
     name: filedrive-backend
     runtime: docker
+    plan: free
     # Points Render at the backend folder
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
