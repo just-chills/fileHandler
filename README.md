@@ -7,11 +7,4 @@
 # AppName : ScoopDrive
 
 # TEST ACCOUNT
-## ID: admin
-## PASS: Admin12345
-
-## ID : user2
-## PASS: User2345
-
-## ID : user3
-## PASS : User3456
+> ข้อมูล test account ถูกลบออกเพื่อความปลอดภัย — สร้าง account ใหม่ผ่านหน้า register ได้เลย
