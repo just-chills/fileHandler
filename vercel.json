@@ -1,0 +1,8 @@
+{
+  "buildCommand": "",
+  "installCommand": "",
+  "outputDirectory": "frontend/src",
+  "framework": null,
+  "cleanUrls": true,
+  "trailingSlash": false
+}

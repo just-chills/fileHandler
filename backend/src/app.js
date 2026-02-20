@@ -12,8 +12,21 @@ const legacyRoutes = require('./routes/legacyRoutes'); // เส้นทาง 
 const app  = express();
 const port = process.env.PORT || 5000; // ใช้พอร์ตจาก .env หรือ 5000 เป็นค่าเริ่มต้น
 
-// ─── Middleware ที่ใช้กับทุก request ─────────────────────────────────────────
-app.use(cors());          // อนุญาตให้ frontend ต่างโดเมนเรียก API ได้
+// ─── CORS – allow localhost in dev, and the deployed Vercel URL in production ──
+const allowedOrigins = [
+  'http://localhost:8080',
+  'http://localhost:3000',
+  process.env.FRONTEND_URL,   // e.g. https://your-app.vercel.app  (set on Render)
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, Postman, server-to-server)
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
+  credentials: true,
+}));
 app.use(express.json()); // แปลง request body จาก JSON อัตโนมัติ
 
 // ─── Simple request logger ────────────────────────────────────────────────────

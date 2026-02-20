@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: filedrive-backend
+    runtime: docker
+    # Points Render at the backend folder
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    # Render sets PORT automatically; add your secrets in the Render dashboard
+    # or uncomment the envVars block below and set each value.
+    envVars:
+      - key: PORT
+        value: 5000
+      # ── Set the following in the Render dashboard (do NOT commit real values) ──
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      # After deploying the frontend to Vercel, paste its URL here:
+      - key: FRONTEND_URL
+        sync: false
+    healthCheckPath: /
+    autoDeploy: true
