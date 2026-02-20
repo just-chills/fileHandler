@@ -14,9 +14,9 @@ services:
       # ── Set the following in the Render dashboard (do NOT commit real values) ──
       - key: SUPABASE_URL
         sync: false
-      - key: SUPABASE_ANON_KEY
+      - key: SUPABASE_KEY
         sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
+      - key: SUPABASE_SERVICE_KEY
         sync: false
       - key: JWT_SECRET
         sync: false
