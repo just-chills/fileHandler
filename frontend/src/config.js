@@ -7,7 +7,7 @@
  *   https://your-service-name.onrender.com/api
  */
 (function () {
-  var PRODUCTION_API_URL = 'https://YOUR_RENDER_SERVICE.onrender.com/api';
+  var PRODUCTION_API_URL = 'https://filedrive-backend.onrender.com/api';
   var DEV_API_URL        = 'http://localhost:5000/api';
 
   var isLocal = (
