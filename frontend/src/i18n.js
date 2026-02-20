@@ -1,4 +1,4 @@
-// ─── Internationalization ─────────────────────────────────────────────────────
+﻿// ─── Internationalization ─────────────────────────────────────────────────────
 // Supports 'en' and 'th'. Change window._lang to switch language.
 // Usage: t('key.name')
 
@@ -14,7 +14,7 @@ const _i18n = {
     'msg.email_invalid':     'Please enter a valid email address.',
     'msg.passwords_mismatch':'Passwords do not match.',
     'msg.password_weak':     'Password is too weak. Please follow the strength requirements.',
-    'msg.register_success':  'Registration successful! Redirecting to login…',
+    'msg.register_success':  'Registration successful! Redi…ting to login…',
     'msg.enter_email':       'Please enter your email address.',
     'msg.enter_valid_email': 'Please enter a valid email address.',
     'msg.enter_otp':         'Please enter the 6-digit OTP code.',
@@ -46,14 +46,23 @@ const _i18n = {
     'user.preview_btn':     'Preview',
     'user.download_btn':    'Download',
     'user.share_btn':       'Share',
-    'user.delete_btn':      'Delete',
+    'user.delete_btn':      …lete',
     'user.uploading':       'Uploading…',
     'user.upload_failed':   'Upload failed. Please try again.',
     'user.upload_ok':       'File uploaded successfully!',
     'user.download_failed': 'Download failed.',
     'user.delete_confirm':  'Are you sure you want to delete "{name}"?',
 
+    // Nav
+    'nav.logout': 'Log Out',
+
     // Admin page
+    'admin.tab_files':    '📂 All Files',
+    'admin.tab_users':    '👥 Users',
+    'admin.files_title':  'All Files in System',
+    'admin.refresh':      '↻ Refresh',
+    'admin.users_title':  'Manage Users',
+    'admin.refresh_users':'↻ Refresh',
     'admin.loading':              'Loading…',
     'admin.no_files':             'No files found.',
     'admin.file_count':           'file',
@@ -71,7 +80,7 @@ const _i18n = {
     'admin.delete_user_btn':      'Delete',
     'admin.delete_file_confirm':  'Delete file "{name}"? This cannot be undone.',
     'admin.toggle_confirm':       'Toggle active status for "{uname}"?',
-    'admin.delete_user_confirm':  'Permanently delete user "{uname}" and all their files?',
+    'admin.delete_user_confirm':  'Permanently delete user "{uname}" and all thei…iles?',
 
     // Preview modal
     'preview.loading':          'Loading preview…',
@@ -133,7 +142,16 @@ const _i18n = {
     'user.download_failed': 'ดาวน์โหลดล้มเหลว',
     'user.delete_confirm':  'คุณแน่ใจหรือไม่ว่าต้องการลบ "{name}"?',
 
+    // Nav
+    'nav.logout': 'ออกจากระบบ',
+
     // Admin page
+    'admin.tab_files':    '📂 ไฟล์ทั้งหมด',
+    'admin.tab_users':    '👥 ผู้ใช้',
+    'admin.files_title':  'ไฟล์ทั้งหมดในระบบ',
+    'admin.refresh':      '↻ รีเฟรช',
+    'admin.users_title':  'จัดการผู้ใช้',
+    'admin.refresh_users':'↻ รีเฟรช',
     'admin.loading':              'กำลังโหลด…',
     'admin.no_files':             'ไม่พบไฟล์',
     'admin.file_count':           'ไฟล์',
@@ -155,7 +173,7 @@ const _i18n = {
 
     // Preview modal
     'preview.loading':          'กำลังโหลดตัวอย่าง…',
-    'preview.unavailable':      'ไม่สามารถดูตัวอย่างไฟล์นี้ได้',
+    'preview.unavailable':      'ไม่สามารถ–ดูตัวอย่างไฟล์นี้ได้',
     'preview.no_preview':       'ไม่รองรับการดูตัวอย่างประเภทไฟล์นี้',
     'preview.download_instead': 'ดาวน์โหลดแทน',
 
@@ -171,4 +189,22 @@ function t(key) {
   const lang  = window._lang in _i18n ? window._lang : 'en';
   const value = _i18n[lang][key] ?? _i18n['en'][key] ?? key;
   return value;
+}
+
+// Apply i18n translations to all elements with data-i18n attribute
+function applyI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    const val = t(key);
+    if (val !== key) el.textContent = val;
+  });
+}
+
+// Toggle between Thai and English
+function toggleLang() {
+  window._lang = window._lang === 'th' ? 'en' : 'th';
+  localStorage.setItem('lang', window._lang);
+  const label = document.getElementById('langLabel');
+  if (label) label.textContent = window._lang === 'th' ? 'EN' : 'TH';
+  applyI18n();
 }

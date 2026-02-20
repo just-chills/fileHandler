@@ -126,7 +126,7 @@ async function loadAdminFiles() {
         <span class="text-xl">${fileIcon(f.mimetype)}</span>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-medium text-slate-800 truncate">${f.original_name}</p>
-          <p class="text-xs text-slate-400">${fmtSize(f.size)} &bull; ${new Date(f.created_at).toLocaleDateString()}</p>
+          <p class="text-xs text-slate-400">${fmtSize(f.size)} &bull; ${f.created_at ? new Date(f.created_at).toLocaleDateString() : '—'}</p>
         </div>
         <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
           <button data-id="${f.id}" data-name="${f.original_name}" data-mime="${f.mimetype}" data-action="preview"
@@ -292,5 +292,6 @@ document.getElementById('previewModal').addEventListener('click', (e) => {
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
+applyI18n();
 loadAdminFiles();
 

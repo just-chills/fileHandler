@@ -43,18 +43,18 @@
 
     <!-- ── Upload Card ── -->
     <div class="bg-white rounded-2xl shadow p-6">
-      <h2 class="text-lg font-bold text-slate-800 mb-4" data-i18n="user.upload_title">อัปเอียหรอไฟล์</h2>
+      <h2 class="text-lg font-bold text-slate-800 mb-4" data-i18n="user.upload_title">อัปโหลดไฟล์</h2>
       <div id="dropZone"
         class="border-2 border-dashed border-slate-300 rounded-xl p-10 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition"
         onclick="document.getElementById('fileInput').click()">
-        <p class="text-slate-500 text-sm" data-i18n-html="user.dropzone_html">ลากแล้ววาง หรือ <span class="text-blue-500 font-semibold">เลือกไฟล์</span> เพื่ออัปเอียหรอ</p>
+        <p class="text-slate-500 text-sm" data-i18n-html="user.dropzone_html">ลากแล้ววาง หรือ <span class="text-blue-500 font-semibold">เลือกไฟล์</span> เพื่ออัปโหลด</p>
         <p id="dropZoneFilename" class="mt-2 text-blue-600 font-medium text-sm hidden"></p>
       </div>
       <input type="file" id="fileInput" class="hidden" />
       <div class="mt-4 flex items-center gap-3">
         <button id="uploadBtn"
           class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition disabled:opacity-50"
-          disabled data-i18n="user.upload_btn">อัปเอียหรอ
+          disabled data-i18n="user.upload_btn">อัปโหลด
         </button>
         <span id="uploadStatus" class="text-sm"></span>
       </div>

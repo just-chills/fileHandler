@@ -1,28 +1,98 @@
 const { supabase, supabaseUrl } = require('../config/supabase');
 
-// ดึงรายการไฟล์ทั้งหมดของ user ที่ login อยู่ (เฉพาะ status = active)
+// ดึง storage path จาก file_url
+function getStoragePath(fileUrl) {
+  const marker = '/storage/v1/object/public/files/';
+  const idx = fileUrl.indexOf(marker);
+  return idx === -1 ? null : fileUrl.slice(idx + marker.length);
+}
+
+// แปลง extension เป็น mimetype
+function getMimeFromFilename(filename) {
+  if (!filename) return 'application/octet-stream';
+  const ext = filename.split('.').pop().toLowerCase();
+  const map = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+    gif: 'image/gif',  webp: 'image/webp', svg: 'image/svg+xml',
+    bmp: 'image/bmp',  ico: 'image/x-icon',
+    mp4: 'video/mp4',  webm: 'video/webm', ogg: 'video/ogg',
+    mov: 'video/quicktime', avi: 'video/x-msvideo', mkv: 'video/x-matroska',
+    mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac', aac: 'audio/aac',
+    pdf:  'application/pdf',
+    doc:  'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls:  'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ppt:  'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    zip: 'application/zip', rar: 'application/x-rar-compressed',
+    '7z': 'application/x-7z-compressed', tar: 'application/x-tar',
+    txt: 'text/plain', csv: 'text/csv', json: 'application/json',
+    xml: 'application/xml', html: 'text/html', css: 'text/css',
+    js:  'text/javascript',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+// ดึงรายการไฟล์ทั้งหมดของ user ที่ login อยู่ + ไฟล์ที่คนอื่นแชร์มาให้
 async function getFiles(req, res) {
   try {
-    const { data, error } = await supabase
+    // 1) ไฟล์ของตัวเอง
+    const { data: own, error: e1 } = await supabase
       .from('files')
       .select('*')
       .eq('user_id', req.user.id)
       .eq('status', 'active')
-      .order('created_at', { ascending: false });
+      .order('id', { ascending: false });
+    if (e1) return res.status(500).json({ message: e1.message });
 
-    if (error) return res.status(500).json({ message: error.message });
+    // 2) ไฟล์ที่คนอื่นแชร์มาให้
+    const { data: shareRows, error: e2 } = await supabase
+      .from('file_shares')
+      .select('file_id, owner:owner_id(username)')
+      .eq('shared_with_id', req.user.id);
+    if (e2) return res.status(500).json({ message: e2.message });
 
-    const files = (data || []).map(f => ({
-      id:            f.id,
-      original_name: f.filename,
-      mimetype:      '',
-      size:          f.file_size,
-      created_at:    f.created_at,
-      file_url:      f.file_url,
-      is_mine:       true,
-      owner:         req.user.username
-    }));
+    let sharedFiles = [];
+    if (shareRows && shareRows.length > 0) {
+      const sharedIds = shareRows.map(r => r.file_id);
+      const ownerMap  = {};
+      shareRows.forEach(r => { ownerMap[r.file_id] = r.owner?.username || '?'; });
 
+      const { data: sf, error: e3 } = await supabase
+        .from('files')
+        .select('*')
+        .in('id', sharedIds)
+        .eq('status', 'active');
+      if (!e3 && sf) {
+        sharedFiles = sf.map(f => ({
+          id:            f.id,
+          original_name: f.filename,
+          mimetype:      getMimeFromFilename(f.filename),
+          size:          f.file_size,
+          created_at:    null,
+          file_url:      f.file_url,
+          is_mine:       false,
+          owner:         ownerMap[f.id] || '?'
+        }));
+      }
+    }
+
+    const files = [
+      ...(own || []).map(f => ({
+        id:            f.id,
+        original_name: f.filename,
+        mimetype:      getMimeFromFilename(f.filename),
+        size:          f.file_size,
+        created_at:    null,
+        file_url:      f.file_url,
+        is_mine:       true,
+        owner:         req.user.username
+      })),
+      ...sharedFiles
+    ];
+
+    console.log(`[getFiles] user=${req.user.id} own=${(own||[]).length} shared=${sharedFiles.length}`);
     res.json({ files });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -65,7 +135,7 @@ async function uploadFile(req, res) {
   }
 }
 
-// ดาวน์โหลดไฟล์ – ดึงจาก Supabase Storage แล้ว stream กลับให้ browser
+// ดาวน์โหลดไฟล์ – ดึงจาก Supabase Storage
 // เจ้าของไฟล์หรือ admin เท่านั้นที่โหลดได้
 async function downloadFile(req, res) {
   try {
@@ -78,17 +148,27 @@ async function downloadFile(req, res) {
 
     if (error || !data) return res.status(404).json({ message: 'File not found' });
 
-    // ตรวจสิทธิ์ – เจ้าของหรือ admin เท่านั้น
-    if (data.user_id !== req.user.id && req.user.role !== 'admin')
-      return res.status(403).json({ message: 'Access denied' });
+    // ตรวจสิทธิ์ – เจ้าของ, admin, หรือคนที่ได้รับการแชร์
+    if (data.user_id !== req.user.id && req.user.role !== 'admin') {
+      const { data: share } = await supabase
+        .from('file_shares')
+        .select('id')
+        .eq('file_id', req.params.id)
+        .eq('shared_with_id', req.user.id)
+        .maybeSingle();
+      if (!share) return res.status(403).json({ message: 'Access denied' });
+    }
 
-    // ดึงไฟล์จาก Supabase Storage แล้ว pipe กลับให้ browser โหลด
-    const fileResp = await fetch(data.file_url);
-    if (!fileResp.ok) return res.status(500).json({ message: 'Could not fetch file from storage' });
+    const storagePath = getStoragePath(data.file_url);
+    if (!storagePath) return res.status(500).json({ message: 'Invalid file URL' });
 
+    const { data: blob, error: dlErr } = await supabase.storage.from('files').download(storagePath);
+    if (dlErr || !blob) return res.status(500).json({ message: dlErr?.message || 'Could not fetch file' });
+
+    const buffer = Buffer.from(await blob.arrayBuffer());
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(data.filename)}"`);
-    res.setHeader('Content-Type', fileResp.headers.get('content-type') || 'application/octet-stream');
-    fileResp.body.pipe(res);
+    res.setHeader('Content-Type', blob.type || getMimeFromFilename(data.filename));
+    res.send(buffer);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -105,14 +185,25 @@ async function previewFile(req, res) {
       .single();
 
     if (error || !data) return res.status(404).json({ message: 'File not found' });
-    if (data.user_id !== req.user.id && req.user.role !== 'admin')
-      return res.status(403).json({ message: 'Access denied' });
+    if (data.user_id !== req.user.id && req.user.role !== 'admin') {
+      const { data: share } = await supabase
+        .from('file_shares')
+        .select('id')
+        .eq('file_id', req.params.id)
+        .eq('shared_with_id', req.user.id)
+        .maybeSingle();
+      if (!share) return res.status(403).json({ message: 'Access denied' });
+    }
 
-    const fileResp = await fetch(data.file_url);
-    if (!fileResp.ok) return res.status(500).json({ message: 'Could not fetch file from storage' });
+    const storagePath = getStoragePath(data.file_url);
+    if (!storagePath) return res.status(500).json({ message: 'Invalid file URL' });
 
-    res.setHeader('Content-Type', fileResp.headers.get('content-type') || 'application/octet-stream');
-    fileResp.body.pipe(res);
+    const { data: blob, error: dlErr } = await supabase.storage.from('files').download(storagePath);
+    if (dlErr || !blob) return res.status(500).json({ message: dlErr?.message || 'Could not fetch file' });
+
+    const buffer = Buffer.from(await blob.arrayBuffer());
+    res.setHeader('Content-Type', blob.type || getMimeFromFilename(data.filename));
+    res.send(buffer);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -141,10 +232,90 @@ async function deleteFile(req, res) {
   }
 }
 
-// ฟังก์ชัน share ยังไม่ได้ implement – คืนค่าว่างไว้ก่อนเพื่อไม่ให้ frontend พัง
-function getShares(req, res)  { res.json({ shares: [] }); }
-function shareFile(req, res)  { const { usernames = [] } = req.body; res.json({ shared: usernames, notFound: [] }); }
-function unshareFile(req, res) { res.json({ message: 'Unshared' }); }
+// ดูรายการคนที่ไฟล์นี้ถูกแชร์ให้
+async function getShares(req, res) {
+  try {
+    const fileId = req.params.id;
+    // ตรวจว่าเป็นเจ้าของไฟล์
+    const { data: file } = await supabase.from('files').select('user_id').eq('id', fileId).single();
+    if (!file || file.user_id !== req.user.id)
+      return res.status(403).json({ message: 'Access denied' });
+
+    const { data, error } = await supabase
+      .from('file_shares')
+      .select('shared_with:shared_with_id(username)')
+      .eq('file_id', fileId);
+    if (error) return res.status(500).json({ message: error.message });
+
+    const shares = (data || []).map(r => ({ username: r.shared_with?.username })).filter(s => s.username);
+    res.json({ shares });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+// แชร์ไฟล์ให้ user อื่น
+async function shareFile(req, res) {
+  try {
+    const fileId = Number(req.params.id);
+    const { usernames = [] } = req.body;
+
+    // ตรวจว่าเป็นเจ้าของไฟล์
+    const { data: file } = await supabase.from('files').select('user_id').eq('id', fileId).single();
+    if (!file || file.user_id !== req.user.id)
+      return res.status(403).json({ message: 'Access denied' });
+
+    // หา user IDs จาก usernames
+    const { data: users } = await supabase
+      .from('users')
+      .select('id, username')
+      .in('username', usernames);
+
+    const foundNames = (users || []).map(u => u.username);
+    const notFound   = usernames.filter(n => !foundNames.includes(n));
+
+    if (users && users.length > 0) {
+      const rows = users.map(u => ({
+        file_id:        fileId,
+        owner_id:       req.user.id,
+        shared_with_id: u.id
+      }));
+      // upsert เพื่อไม่ให้ duplicate
+      await supabase.from('file_shares').upsert(rows, { onConflict: 'file_id,shared_with_id' });
+    }
+
+    res.json({ shared: foundNames, notFound });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+// ยกเลิกการแชร์
+async function unshareFile(req, res) {
+  try {
+    const fileId = Number(req.params.id);
+    const { username } = req.body;
+    if (!username) return res.status(400).json({ message: 'username required' });
+
+    // ตรวจว่าเป็นเจ้าของไฟล์
+    const { data: file } = await supabase.from('files').select('user_id').eq('id', fileId).single();
+    if (!file || file.user_id !== req.user.id)
+      return res.status(403).json({ message: 'Access denied' });
+
+    // หา user ID
+    const { data: user } = await supabase.from('users').select('id').eq('username', username).single();
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    await supabase.from('file_shares')
+      .delete()
+      .eq('file_id', fileId)
+      .eq('shared_with_id', user.id);
+
+    res.json({ message: 'Unshared' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+}
 
 // ค้นหา user อื่นจาก username (ใช้ใน autocomplete ตอนแชร์ไฟล์)
 async function searchUsers(req, res) {
