@@ -2,7 +2,7 @@ const API = 'http://localhost:5000/api';
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
-function getToken() { return localStorage.getItem('accessToken'); }
+function getToken() { return sessionStorage.getItem('accessToken'); }
 
 function authHeaders(extra = {}) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}`, ...extra };
@@ -15,17 +15,19 @@ async function apiFetch(url, opts = {}) {
     const rr = await fetch(`${API}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: localStorage.getItem('refreshToken') }),
+      body: JSON.stringify({ refreshToken: sessionStorage.getItem('refreshToken') }),
     });
     if (rr.ok) {
       const d = await rr.json();
-      localStorage.setItem('accessToken', d.accessToken);
-      localStorage.setItem('refreshToken', d.refreshToken);
+      sessionStorage.setItem('accessToken', d.accessToken);
+      sessionStorage.setItem('refreshToken', d.refreshToken);
       // Retry original with new token
       opts.headers = { ...opts.headers, Authorization: `Bearer ${d.accessToken}` };
       return fetch(url, opts);
     } else {
-      localStorage.clear();
+      sessionStorage.removeItem('accessToken');
+      sessionStorage.removeItem('refreshToken');
+      sessionStorage.removeItem('user');
       window.location.href = '../../index.html';
     }
   }
@@ -33,9 +35,11 @@ async function apiFetch(url, opts = {}) {
 }
 
 // ─── Guard (primary check is the inline script in <head>; this is a fallback) ──
-const user = (() => { try { return JSON.parse(localStorage.getItem('user')); } catch { return null; } })();
+const user = (() => { try { return JSON.parse(sessionStorage.getItem('user')); } catch { return null; } })();
 if (!user || user.role !== 'user') {
-  localStorage.clear();
+  sessionStorage.removeItem('accessToken');
+  sessionStorage.removeItem('refreshToken');
+  sessionStorage.removeItem('user');
   window.location.replace('../../index.html');
 }
 
@@ -45,11 +49,11 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
   await fetch(`${API}/auth/logout`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ refreshToken: localStorage.getItem('refreshToken') }),
+    body: JSON.stringify({ refreshToken: sessionStorage.getItem('refreshToken') }),
   }).catch(() => {});
-  localStorage.removeItem('accessToken');
-  localStorage.removeItem('refreshToken');
-  localStorage.removeItem('user');
+  sessionStorage.removeItem('accessToken');
+  sessionStorage.removeItem('refreshToken');
+  sessionStorage.removeItem('user');
   window.location.href = '../../index.html';
 });
 

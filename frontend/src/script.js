@@ -3,13 +3,13 @@ const API_URL = 'http://localhost:5000/api';
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
 function saveSession(data) {
-  localStorage.setItem('accessToken', data.accessToken);
-  localStorage.setItem('refreshToken', data.refreshToken);
-  localStorage.setItem('user', JSON.stringify(data.user));
+  sessionStorage.setItem('accessToken', data.accessToken);
+  sessionStorage.setItem('refreshToken', data.refreshToken);
+  sessionStorage.setItem('user', JSON.stringify(data.user));
 }
 
 function getUser() {
-  try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
+  try { return JSON.parse(sessionStorage.getItem('user')); } catch { return null; }
 }
 
 // ─── UI helpers ───────────────────────────────────────────────────────────────

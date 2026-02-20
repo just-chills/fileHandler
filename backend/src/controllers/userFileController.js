@@ -105,31 +105,43 @@ async function uploadFile(req, res) {
     if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
 
     const userId   = req.user.id;
-    // ตั้งชื่อไฟล์ใน storage เป็น userId/timestamp-ชื่อไฟล์ เพื่อไม่ให้ชนกัน
-    const filename = `${userId}/${Date.now()}-${req.file.originalname}`;
+    // multer อ่าน filename จาก header เป็น latin1 → re-encode กลับเป็น UTF-8 ให้ถูกต้อง
+    const originalname = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    console.log('[upload] originalname:', JSON.stringify(originalname), 'len:', originalname.length);
+    // ใช้แค่ timestamp + extension เป็น storage key เพื่อให้สั้น ASCII-safe เสมอ
+    const ext        = require('path').extname(originalname) || '';
+    const storageKey = `${userId}/${Date.now()}${ext}`;
+    console.log('[upload] storageKey:', storageKey, 'len:', storageKey.length);
 
     // อัปโหลด binary ไฟล์ขึ้น Supabase Storage bucket ชื่อ 'files'
     const { error: storageErr } = await supabase.storage
       .from('files')
-      .upload(filename, req.file.buffer, { contentType: req.file.mimetype });
+      .upload(storageKey, req.file.buffer, { contentType: req.file.mimetype });
 
-    if (storageErr) return res.status(500).json({ message: storageErr.message });
+    if (storageErr) {
+      console.log('[upload] storageErr:', storageErr.message);
+      return res.status(500).json({ message: storageErr.message });
+    }
 
     // สร้าง public URL สำหรับเปิด/โหลดไฟล์
-    const fileUrl = `${supabaseUrl}/storage/v1/object/public/files/${filename}`;
+    const fileUrl = `${supabaseUrl}/storage/v1/object/public/files/${storageKey}`;
+    console.log('[upload] fileUrl len:', fileUrl.length);
 
-    // บันทึก metadata ลงตาราง files ใน DB
+    // บันทึก metadata ลงตาราง files ใน DB (เก็บชื่อไฟล์ต้นฉบับที่ decode แล้ว)
     const { error: dbErr } = await supabase.from('files').insert([{
       user_id:   userId,
-      filename:  req.file.originalname,
+      filename:  originalname,
       file_url:  fileUrl,
       file_size: req.file.size,
       status:    'active'
     }]);
 
-    if (dbErr) return res.status(500).json({ message: dbErr.message });
+    if (dbErr) {
+      console.log('[upload] dbErr:', dbErr.message);
+      return res.status(500).json({ message: dbErr.message });
+    }
 
-    res.json({ message: 'File uploaded successfully', filename: req.file.originalname });
+    res.json({ message: 'File uploaded successfully', filename: originalname });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

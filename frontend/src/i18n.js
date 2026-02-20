@@ -14,7 +14,7 @@ const _i18n = {
     'msg.email_invalid':     'Please enter a valid email address.',
     'msg.passwords_mismatch':'Passwords do not match.',
     'msg.password_weak':     'Password is too weak. Please follow the strength requirements.',
-    'msg.register_success':  'Registration successful! Redi…ting to login…',
+    'msg.register_success':  'Registration successful! Redirecting to login…',
     'msg.enter_email':       'Please enter your email address.',
     'msg.enter_valid_email': 'Please enter a valid email address.',
     'msg.enter_otp':         'Please enter the 6-digit OTP code.',
@@ -46,7 +46,7 @@ const _i18n = {
     'user.preview_btn':     'Preview',
     'user.download_btn':    'Download',
     'user.share_btn':       'Share',
-    'user.delete_btn':      …lete',
+    'user.delete_btn':      'Delete',
     'user.uploading':       'Uploading…',
     'user.upload_failed':   'Upload failed. Please try again.',
     'user.upload_ok':       'File uploaded successfully!',
@@ -80,7 +80,7 @@ const _i18n = {
     'admin.delete_user_btn':      'Delete',
     'admin.delete_file_confirm':  'Delete file "{name}"? This cannot be undone.',
     'admin.toggle_confirm':       'Toggle active status for "{uname}"?',
-    'admin.delete_user_confirm':  'Permanently delete user "{uname}" and all thei…iles?',
+    'admin.delete_user_confirm':  'Permanently delete user "{uname}" and all their files?',
 
     // Preview modal
     'preview.loading':          'Loading preview…',
