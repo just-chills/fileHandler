@@ -10,7 +10,7 @@ const adminRoutes  = require('./routes/adminRoutes');  // เส้นทาง�
 const legacyRoutes = require('./routes/legacyRoutes'); // เส้นทาง legacy (ของเก่า)
 
 const app  = express();
-const port = process.env.PORT || 5000; // ใช้พอร์ตจาก .env หรือ 5000 เป็นค่าเริ่มต้น
+const port = process.env.PORT || 5000;
 
 // ─── CORS – allow localhost in dev, and the deployed Vercel URL in production ──
 const allowedOrigins = [
@@ -54,7 +54,13 @@ app.use((err, req, res, next) => {
   res.status(status).json({ message: err.message });
 });
 
-// ─── เปิด server รับ request ──────────────────────────────────────────────────
-app.listen(port, () => {
+// ─── HTTP server + WebSocket ──────────────────────────────────────────
+const http = require('http');
+const { createWsServer } = require('./ws');
+
+const server = http.createServer(app);
+createWsServer(server); // ผูก WebSocket เข้ากับ HTTP server เดียวกัน
+
+server.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
 });

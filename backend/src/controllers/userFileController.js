@@ -1,3 +1,4 @@
+const { broadcast } = require('../ws');
 const { supabase, supabaseUrl } = require('../config/supabase');
 
 // ดึง storage path จาก file_url
@@ -37,20 +38,23 @@ function getMimeFromFilename(filename) {
 // ดึงรายการไฟล์ทั้งหมดของ user ที่ login อยู่ + ไฟล์ที่คนอื่นแชร์มาให้
 async function getFiles(req, res) {
   try {
-    // 1) ไฟล์ของตัวเอง
-    const { data: own, error: e1 } = await supabase
-      .from('files')
-      .select('*')
-      .eq('user_id', req.user.id)
-      .eq('status', 'active')
-      .order('id', { ascending: false });
+    // 1) & 2) ยิง query คู่ขนานกัน – ไม่ต้องรอทีละอัน
+    const [
+      { data: own,       error: e1 },
+      { data: shareRows, error: e2 },
+    ] = await Promise.all([
+      supabase
+        .from('files')
+        .select('id, filename, file_url, file_size, uploaded_at')
+        .eq('user_id', req.user.id)
+        .eq('status', 'active')
+        .order('id', { ascending: false }),
+      supabase
+        .from('file_shares')
+        .select('file_id, owner:owner_id(username)')
+        .eq('shared_with_id', req.user.id),
+    ]);
     if (e1) return res.status(500).json({ message: e1.message });
-
-    // 2) ไฟล์ที่คนอื่นแชร์มาให้
-    const { data: shareRows, error: e2 } = await supabase
-      .from('file_shares')
-      .select('file_id, owner:owner_id(username)')
-      .eq('shared_with_id', req.user.id);
     if (e2) return res.status(500).json({ message: e2.message });
 
     let sharedFiles = [];
@@ -128,20 +132,32 @@ async function uploadFile(req, res) {
     console.log('[upload] fileUrl len:', fileUrl.length);
 
     // บันทึก metadata ลงตาราง files ใน DB (เก็บชื่อไฟล์ต้นฉบับที่ decode แล้ว)
-    const { error: dbErr } = await supabase.from('files').insert([{
+    const { data: inserted, error: dbErr } = await supabase.from('files').insert([{
       user_id:   userId,
       filename:  originalname,
       file_url:  fileUrl,
       file_size: req.file.size,
       status:    'active'
-    }]);
+    }]).select('id, filename, file_url, file_size, uploaded_at').single();
 
     if (dbErr) {
       console.log('[upload] dbErr:', dbErr.message);
       return res.status(500).json({ message: dbErr.message });
     }
 
-    res.json({ message: 'File uploaded successfully', filename: originalname });
+    const filePayload = {
+      id:            inserted.id,
+      original_name: inserted.filename,
+      mimetype:      getMimeFromFilename(inserted.filename),
+      size:          inserted.file_size,
+      created_at:    inserted.uploaded_at || null,
+      file_url:      inserted.file_url,
+      is_mine:       true,
+      owner:         req.user.username
+    };
+    broadcast({ type: 'file_uploaded', file: filePayload, userId: String(userId) },
+      c => c.role === 'admin' || c.userId === String(userId));
+    res.json({ message: 'File uploaded successfully', file: filePayload });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -238,6 +254,7 @@ async function deleteFile(req, res) {
       return res.status(403).json({ message: 'Access denied' });
 
     await supabase.from('files').update({ status: 'deleted' }).eq('id', req.params.id);
+    broadcast({ type: 'file_deleted', id: String(req.params.id) });
     res.json({ message: 'File deleted successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });

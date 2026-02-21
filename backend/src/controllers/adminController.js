@@ -1,3 +1,4 @@
+const { broadcast } = require('../ws');
 const { supabase } = require('../config/supabase');
 
 // ดึง storage path จาก file_url
@@ -129,6 +130,7 @@ async function deleteFile(req, res) {
       .single();
 
     if (error || !data) return res.status(404).json({ message: 'File not found' });
+    broadcast({ type: 'file_deleted', id: String(data.id) });
     res.json({ message: 'File deleted successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -168,6 +170,9 @@ async function toggleUser(req, res) {
     const { error } = await supabase.from('users').update({ status: newStatus }).eq('id', req.params.id);
     if (error) return res.status(500).json({ message: error.message });
 
+    const uid = String(req.params.id);
+    broadcast({ type: 'user_toggled', userId: uid, status: newStatus },
+      c => c.role === 'admin' || c.userId === uid);
     res.json({ message: `User ${newStatus === 'active' ? 'enabled' : 'disabled'}` });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -179,6 +184,10 @@ async function unlockUser(req, res) {
   try {
     const { error } = await supabase.from('users').update({ status: 'active' }).eq('id', req.params.id);
     if (error) return res.status(500).json({ message: error.message });
+
+    const uid = String(req.params.id);
+    broadcast({ type: 'user_unlocked', userId: uid },
+      c => c.role === 'admin' || c.userId === uid);
     res.json({ message: 'User unlocked' });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -189,11 +198,15 @@ async function unlockUser(req, res) {
 async function deleteUser(req, res) {
   try {
     // hard delete ไฟล์ทั้งหมดของ user ก่อน เพื่อไม่ให้ FK constraint ขัด
-    const { error: filesErr } = await supabase.from('files').delete().eq('user_id', req.params.id);
+    const uid = String(req.params.id);
+    const { error: filesErr } = await supabase.from('files').delete().eq('user_id', uid);
     if (filesErr) return res.status(500).json({ message: filesErr.message });
 
-    const { error } = await supabase.from('users').delete().eq('id', req.params.id);
+    const { error } = await supabase.from('users').delete().eq('id', uid);
     if (error) return res.status(500).json({ message: error.message });
+
+    broadcast({ type: 'user_deleted', userId: uid },
+      c => c.role === 'admin' || c.userId === uid);
     res.json({ message: 'User deleted' });
   } catch (err) {
     res.status(500).json({ message: err.message });

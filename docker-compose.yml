@@ -9,9 +9,9 @@ services:
       - ./backend/.env
     environment:
       - NODE_ENV=development
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
-      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       - type: bind
         source: ./backend/src
@@ -19,7 +19,6 @@ services:
       - type: bind
         source: ./backend/src/uploads
         target: /app/src/uploads
-      - /app/node_modules
     networks:
       - filehandler-net
   

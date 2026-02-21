@@ -28,8 +28,8 @@ async function register(req, res) {
     const { data: byEmail } = await supabase.from('users').select('id').eq('email', email).maybeSingle();
     if (byEmail) return res.status(409).json({ message: 'Email already registered' });
 
-    // เข้ารหัส password ด้วย bcrypt (cost factor 12)
-    const hashedPassword = await bcrypt.hash(password, 12);
+    // เข้ารหัส password ด้วย bcrypt (cost factor 10 – เร็วกว่า 12 ประมาณ 4x โดยยังปลอดภัย)
+    const hashedPassword = await bcrypt.hash(password, 10);
     const { error } = await supabase
       .from('users')
       .insert([{ username, email, password: hashedPassword, role: 'user', status: 'active' }]);
@@ -49,10 +49,10 @@ async function login(req, res) {
     if (!username || !password)
       return res.status(400).json({ message: 'Username and password required' });
 
-    // ดึงข้อมูล user จาก DB ด้วย username
+    // ดึงข้อมูล user จาก DB ด้วย username – select เฉพาะ column ที่ใช้
     const { data: user, error } = await supabase
       .from('users')
-      .select('*')
+      .select('id, username, email, role, status, password')
       .eq('username', username)
       .single();
 

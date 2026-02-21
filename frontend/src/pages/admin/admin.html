@@ -24,7 +24,11 @@
       }
     })();
   </script>
-  <style>body { display: none; }</style>
+  <style>
+    body { display: none; }
+    .row-selected .file-icon { visibility: hidden; }
+    .row-selected .file-check { opacity: 1 !important; }
+  </style>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-100 min-h-screen" onload="document.body.style.display='block'">
@@ -44,7 +48,7 @@
   </nav>
 
   <!-- ── Tabs ── -->
-  <div class="max-w-6xl mx-auto px-4 pt-6">
+  <div class="max-w-screen-2xl mx-auto px-4 xl:px-10 pt-6">
     <div class="flex gap-2 mb-6">
       <button id="tabFiles" data-tab="files"
         class="tab-btn px-5 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white transition"
@@ -64,6 +68,14 @@
         <h2 class="text-lg font-bold text-slate-800" data-i18n="admin.files_title">ไฟล์ทั้งหมดในระบบ</h2>
         <button id="refreshFilesBtn" class="text-xs text-slate-400 hover:text-slate-600 transition" data-i18n="admin.refresh">↻ รีเฟรช</button>
       </div>
+      <!-- Admin selection bar -->
+      <div id="adminSelectionBar" class="hidden items-center justify-between px-3 py-2 bg-blue-50 rounded-xl border border-blue-100">
+        <span class="text-sm font-medium text-blue-700"><span id="adminSelectionCount">0</span> รายการที่เลือก</span>
+        <button id="adminDeleteSelectedBtn" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          ลบที่เลือก
+        </button>
+      </div>
       <div id="adminFileList" class="space-y-2">
         <p class="text-slate-400 text-sm text-center py-6" data-i18n="admin.loading">กำลังโหลด…</p>
       </div>
@@ -77,6 +89,25 @@
       </div>
       <div id="adminUserList" class="space-y-3">
         <p class="text-slate-400 text-sm text-center py-6" data-i18n="admin.loading">กำลังโหลด…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Custom Confirm Modal ── -->
+  <div id="confirmModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+      <div class="flex items-start gap-3 mb-5">
+        <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+          <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+        </div>
+        <div>
+          <p class="font-semibold text-slate-800 text-sm mb-1" id="confirmTitle">ยืนยัน</p>
+          <p class="text-sm text-slate-500" id="confirmMessage"></p>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button id="confirmCancelBtn" class="px-4 py-2 text-sm font-semibold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition">ยกเลิก</button>
+        <button id="confirmOkBtn" class="px-4 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg transition">ยืนยัน</button>
       </div>
     </div>
   </div>

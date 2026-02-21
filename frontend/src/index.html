@@ -5,6 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ScoopDrive - เข้าสู่ระบบ</title>
+    <!-- ── pre-connect: เปิด TCP/TLS ไปยัง backend ทันที ── -->
+    <link rel="preconnect" href="https://filedrive-backend.onrender.com">
+    <link rel="dns-prefetch" href="https://filedrive-backend.onrender.com">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @keyframes float {
@@ -430,6 +433,13 @@
     </div>
 
     <script src="./config.js"></script>
+    <!-- ── warm-up ping: ปลุก Render backend ก่อนที่ user จะกด login ── -->
+    <script>
+      (function () {
+        var base = (window.API_URL || 'https://filedrive-backend.onrender.com/api').replace(/\/api$/, '');
+        fetch(base + '/', { method: 'GET', mode: 'no-cors', cache: 'no-store' }).catch(function () {});
+      })();
+    </script>
     <script src="./i18n.js"></script>
     <script src="./script.js"></script>
 </body>
