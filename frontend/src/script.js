@@ -1,5 +1,24 @@
 const API_URL = window.API_URL || 'http://localhost:5000/api';
 
+// ─── Fetch with timeout ───────────────────────────────────────────────────────
+// ป้องกัน fetch ค้างนาน (เช่น Render free tier cold start)
+async function fetchWithTimeout(url, options = {}, ms = 25000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      const timeoutErr = new Error('timeout');
+      timeoutErr.isTimeout = true;
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
 function saveSession(data) {
@@ -132,6 +151,47 @@ document.getElementById('signupPasswordInput').addEventListener('input', (e) => 
   }
 })();
 
+// ─── Server Warm-up (Render free tier) ───────────────────────────────────────
+// Ping backend ทันทีที่โหลดหน้า (เฉพาะ production) เพื่อปลุก Render ก่อนที่
+// user จะพิมพ์ username/password เสร็จ → ลด wait time ตอน login
+(function warmUpServer() {
+  const isLocal = (
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1'
+  );
+  if (isLocal) return;
+
+  const HEALTH_URL = API_URL.replace(/\/api$/, '') + '/api/health';
+  const msgEl = document.getElementById('loginMessage');
+
+  // แสดง notice ให้ user รู้ว่า server กำลัง wake up
+  if (msgEl) {
+    msgEl.textContent = t('msg.server_waking');
+    msgEl.className = 'text-sm mt-3 px-3 py-2 rounded-lg text-center bg-yellow-50 text-yellow-700 border border-yellow-200';
+    msgEl.classList.remove('hidden');
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120_000); // รอสูงสุด 2 นาที
+
+  fetch(HEALTH_URL, { signal: ctrl.signal })
+    .then(() => {
+      clearTimeout(timer);
+      // ซ่อน notice เฉพาะถ้ายังเป็น warm-up message อยู่ (ไม่ใช่ error อื่น)
+      if (msgEl && msgEl.textContent === t('msg.server_waking')) {
+        msgEl.textContent = '';
+        msgEl.classList.add('hidden');
+      }
+    })
+    .catch(() => {
+      clearTimeout(timer);
+      if (msgEl && msgEl.textContent === t('msg.server_waking')) {
+        msgEl.textContent = '';
+        msgEl.classList.add('hidden');
+      }
+    });
+})();
+
 // ─── Login ────────────────────────────────────────────────────────────────────
 
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
@@ -149,11 +209,11 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   }
 
   try {
-    const res = await fetch(`${API_URL}/auth/login`, {
+    const res = await fetchWithTimeout(`${API_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
-    });
+    }, 30000);
 
     const data = await res.json();
 
@@ -179,7 +239,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     }
   } catch (err) {
     setButtonLoading('loginBtn', false, t('login.btn'));
-    showMessage('loginMessage', t('msg.server_error'));
+    showMessage('loginMessage', err.isTimeout ? t('msg.server_timeout') : t('msg.server_error'));
   }
 });
 

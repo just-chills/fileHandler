@@ -41,6 +41,7 @@ app.use((req, res, next) => {
 
 // ─── Health check – ใช้เช็คว่า server ยังทำงานอยู่ไหม ────────────────────────
 app.get('/', (req, res) => res.send('Backend running smoothly with Supabase'));
+app.get('/api/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
 
 // ─── ผูก routes เข้ากับ path ──────────────────────────────────────────────────
 app.use('/api/auth',  authRoutes);   // เช่น POST /api/auth/login

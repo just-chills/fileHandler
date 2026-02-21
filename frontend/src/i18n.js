@@ -11,6 +11,9 @@ const _i18n = {
     // Messages
     'msg.fill_all':          'Please fill in all fields.',
     'msg.server_error':      'Server error. Please try again.',
+    'msg.server_waking':     '⚡ Server is starting up (free tier cold start), this may take ~30 seconds…',
+    'msg.server_timeout':    'Server is still waking up. Please try again in a moment.',
+
     'msg.email_invalid':     'Please enter a valid email address.',
     'msg.passwords_mismatch':'Passwords do not match.',
     'msg.password_weak':     'Password is too weak. Please follow the strength requirements.',
@@ -100,6 +103,9 @@ const _i18n = {
     // Messages
     'msg.fill_all':          'กรุณากรอกข้อมูลให้ครบทุกช่อง',
     'msg.server_error':      'เกิดข้อผิดพลาดของเซิร์ฟเวอร์ กรุณาลองใหม่อีกครั้ง',
+    'msg.server_waking':     '⚡ เซิร์ฟเวอร์กำลังเริ่มต้น (อาจใช้เวลา ~30 วินาที สำหรับ free tier)…',
+    'msg.server_timeout':    'เซิร์ฟเวอร์ยังคงเริ่มต้นอยู่ โปรดลองอีกครั้งสักครู่',
+
     'msg.email_invalid':     'กรุณากรอกอีเมลให้ถูกต้อง',
     'msg.passwords_mismatch':'รหัสผ่านไม่ตรงกัน',
     'msg.password_weak':     'รหัสผ่านไม่แข็งแรงพอ กรุณาปรับตามข้อกำหนด',
