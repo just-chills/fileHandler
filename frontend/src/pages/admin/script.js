@@ -8,8 +8,18 @@ function authHeaders(extra = {}) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}`, ...extra };
 }
 
-async function apiFetch(url, opts = {}) {
-  const res = await fetch(url, opts);
+async function apiFetch(url, opts = {}, timeoutMs = 20000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(url, { ...opts, signal: ctrl.signal });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') throw Object.assign(new Error('Request timed out'), { isTimeout: true });
+    throw err;
+  }
+  clearTimeout(timer);
   if (res.status === 401) {
     const rr = await fetch(`${API}/auth/refresh`, {
       method: 'POST',
@@ -592,5 +602,13 @@ function getWsUrl() {
     setTimeout(connectWS, 5000);
   };
   ws.onerror = () => ws.close();
+}());
+
+// ─── Keep-alive ping ──────────────────────────────────────────────────────────────
+(function keepAlive() {
+  const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if (isLocal) return;
+  const HEALTH = API.replace(/\/api$/, '') + '/api/health';
+  setInterval(() => fetch(HEALTH).catch(() => {}), 14 * 60 * 1000);
 }());
 
